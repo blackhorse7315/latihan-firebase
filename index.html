@@ -30,19 +30,15 @@
 
         const statusMsg = document.getElementById('statusMsg');
         const tokenDisplay = document.getElementById('tokenDisplay');
+        const tokenSection = document.getElementById('tokenSection');
 
-        // Fungsi Registrasi Service Worker yang lebih aman
         async function registerSW() {
             if ('serviceWorker' in navigator) {
                 try {
-                    // Gunakan path relatif yang benar untuk GitHub Pages
-                    const registration = await navigator.serviceWorker.register('./firebase-messaging-sw.js', {
-                        scope: './'
-                    });
-                    console.log('Service Worker terdaftar:', registration);
+                    const registration = await navigator.serviceWorker.register('./firebase-messaging-sw.js');
                     return registration;
                 } catch (err) {
-                    console.error('Service Worker Gagal Daftar:', err);
+                    console.error('SW Register Error:', err);
                     return null;
                 }
             }
@@ -51,19 +47,11 @@
 
         async function requestNotificationPermission() {
             try {
-                // 1. Cek Service Worker dulu
+                showStatus("Meminta izin...", "bg-blue-500");
                 const swReg = await registerSW();
-                if (!swReg) {
-                    showStatus("Service Worker tidak ditemukan!", "bg-red-600");
-                    return;
-                }
-
-                // 2. Minta Izin Notifikasi
                 const permission = await Notification.requestPermission();
-                console.log("Izin Notifikasi:", permission);
-
+                
                 if (permission === 'granted') {
-                    // 3. Ambil Token FCM
                     const token = await getToken(messaging, { 
                         vapidKey: VAPID_KEY,
                         serviceWorkerRegistration: swReg 
@@ -71,24 +59,39 @@
 
                     if (token) {
                         tokenDisplay.value = token;
-                        tokenDisplay.parentElement.classList.remove('hidden');
+                        tokenSection.classList.remove('hidden');
                         showStatus("Notifikasi Aktif!", "bg-green-600");
-                        console.log("Token:", token);
+                        console.log("Token Baru:", token);
                     }
-                } else if (permission === 'denied') {
-                    showStatus("Izin Ditolak Browser. Klik icon gembok untuk Reset!", "bg-red-500");
+                } else {
+                    // Jika di HP tetap "denied", ini akan muncul
+                    showStatus("Izin Ditolak (" + permission + "). Reset di browser!", "bg-red-500");
                 }
             } catch (error) {
                 console.error("FCM Error:", error);
-                showStatus("Error: " + error.code, "bg-red-500");
+                showStatus("Error: " + error.code, "bg-red-600");
             }
         }
 
-        // Logika Foreground (Saat App terbuka)
+        // Handle notifikasi saat aplikasi TERBUKA (Foreground)
         onMessage(messaging, (payload) => {
-            console.log('Pesan diterima:', payload);
-            showStatus(`Pesan: ${payload.notification.title}`, "bg-indigo-600");
+            console.log('Pesan Foreground:', payload);
+            // Munculkan notifikasi manual karena browser tidak otomatis memunculkan toast jika tab aktif
+            new Notification(payload.notification.title, {
+                body: payload.notification.body,
+                icon: 'https://cdn-icons-png.flaticon.com/512/3119/3119338.png'
+            });
+            showStatus("Pesan: " + payload.notification.title, "bg-indigo-600");
         });
+
+        // Test Lokal (Tanpa Firebase) untuk cek apakah HP/PC bisa notif
+        window.testLocalNotif = () => {
+            if (Notification.permission === 'granted') {
+                new Notification("Test Berhasil!", { body: "Browser kamu bisa memunculkan notifikasi." });
+            } else {
+                showStatus("Klik lonceng dulu!", "bg-yellow-500");
+            }
+        };
 
         // Event Listeners
         document.getElementById('notifBtn').addEventListener('click', requestNotificationPermission);
@@ -134,23 +137,31 @@
     </script>
 </head>
 <body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
-    <div class="max-w-md w-full bg-white rounded-[2rem] shadow-2xl overflow-hidden">
+    <div class="max-w-md w-full bg-white rounded-[2rem] shadow-2xl overflow-hidden border border-gray-200">
         <div class="bg-indigo-600 p-8 text-white flex justify-between items-center">
-            <h1 class="text-2xl font-bold">Task Notif</h1>
-            <button id="notifBtn" class="bg-white/20 p-3 rounded-2xl hover:bg-white/30 transition-all">🔔</button>
+            <div>
+                <h1 class="text-2xl font-bold">Task Manager</h1>
+                <p class="text-xs opacity-70">Firebase Push Notification</p>
+            </div>
+            <button id="notifBtn" class="bg-white/20 p-3 rounded-2xl hover:bg-white/30 transition-all active:scale-90">🔔</button>
         </div>
         <div class="p-6">
             <div class="flex gap-2 mb-6">
-                <input type="text" id="taskInput" placeholder="Tugas..." class="flex-1 px-4 py-2 bg-gray-50 rounded-xl outline-none border border-gray-100">
-                <button id="addBtn" class="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold">Tambah</button>
+                <input type="text" id="taskInput" placeholder="Tulis tugas..." class="flex-1 px-4 py-3 bg-gray-50 rounded-xl outline-none border border-gray-100 focus:border-indigo-300 transition-all">
+                <button id="addBtn" class="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold">Add</button>
             </div>
-            <div id="taskList"></div>
-            <div class="mt-6 hidden">
-                <p class="text-[10px] text-gray-400 font-bold mb-1 uppercase">Token Kamu (Copy ke Firebase Console):</p>
-                <input type="text" id="tokenDisplay" readonly class="w-full text-[9px] bg-gray-100 p-2 rounded border font-mono">
+            
+            <div id="taskList" class="space-y-1"></div>
+
+            <div id="tokenSection" class="mt-8 pt-6 border-t border-gray-100 hidden">
+                <p class="text-[10px] text-gray-400 font-bold mb-2 uppercase tracking-widest">Device Token:</p>
+                <textarea id="tokenDisplay" readonly class="w-full text-[9px] bg-gray-50 p-3 rounded-xl border border-gray-100 font-mono h-20 outline-none resize-none"></textarea>
+                <button onclick="testLocalNotif()" class="mt-3 w-full py-2 bg-gray-100 text-gray-600 rounded-xl text-xs font-bold hover:bg-gray-200 transition-all">
+                    Test Munculkan Notifikasi
+                </button>
             </div>
         </div>
     </div>
-    <div id="statusMsg" class="opacity-0"></div>
+    <div id="statusMsg" class="opacity-0 pointer-events-none"></div>
 </body>
 </html>
